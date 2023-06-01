@@ -3,8 +3,11 @@ package ui.george.explorer
 import javafx.application.Application
 import javafx.application.Platform
 import javafx.geometry.Insets
+import javafx.geometry.Pos
 import javafx.scene.Scene
 import javafx.scene.control.*
+import javafx.scene.image.Image
+import javafx.scene.image.ImageView
 import javafx.scene.layout.*
 import javafx.scene.paint.Color
 import javafx.stage.Stage
@@ -12,7 +15,12 @@ import java.io.File
 
 class HelloApplication : Application() {
     override fun start(stage: Stage) {
-        val dir = File("${System.getProperty("user.dir")}/test/")
+        val home = File("${System.getProperty("user.dir")}/test/")
+        var dir = home
+
+        val centrePane = StackPane().apply {
+            alignment = Pos.TOP_CENTER
+        }
 
         val statusBar = Label("").apply {
             padding = Insets(5.0)
@@ -22,8 +30,8 @@ class HelloApplication : Application() {
             prefWidth = 200.0
 
             // Order the files and folders by type and sort by name
-            val (directories, files) = dir.listFiles()!!.partition { it.isDirectory }
-            val file_map = files.groupBy {
+            var (directories, files) = dir.listFiles()!!.partition { it.isDirectory }
+            var fileMap = files.groupBy {
                 when (it.extension) {
                     "jpg", "png", "bmp" -> "image"
                     "md", "txt" -> "text"
@@ -31,34 +39,45 @@ class HelloApplication : Application() {
                 }
             }
             for (folder in directories) {
-                items.add(folder.name + "/").apply {
-                    val file_obj = folder
+                items.add(folder.name + "/")
+            }
+            if ("text" in fileMap) {
+                for (file in fileMap["text"]!!.sorted()) {
+                    items.add(file.name)
                 }
             }
-            if ("text" in file_map) {
-                for (file in file_map["text"]!!.sorted()) {
-                    items.add(file.name).apply {
-                        val file_obj = file
-                    }
+            if ("image" in fileMap) {
+                for (image in fileMap["image"]!!.sorted()) {
+                    items.add(image.name)
                 }
             }
-            if ("image" in file_map) {
-                for (image in file_map["image"]!!.sorted()) {
-                    items.add(image.name).apply {
-                        val file_obj = image
-                    }
-                }
-            }
-            if ("other" in file_map) {
-                for (file in file_map["other"]!!.sorted()) {
-                    items.add(file.name).apply {
-                        val file_obj = file
-                    }
+            if ("other" in fileMap) {
+                for (file in fileMap["other"]!!.sorted()) {
+                    items.add(file.name)
                 }
             }
             selectionModel.selectionMode = SelectionMode.SINGLE
             selectionModel.select(0);
-            
+            statusBar.text = "${dir.path}/${selectionModel.selectedItem}"
+            selectionModel.selectedItemProperty().addListener { _, _, newSelection ->
+                val selectedFile = File("${dir.path}/${newSelection}")
+                statusBar.text = selectedFile.path
+                centrePane.children.clear()
+                if (selectedFile.extension in listOf("md", "txt")) {
+                    centrePane.children.add(TextArea(selectedFile.readText()).apply {
+                        prefWidthProperty().bind(centrePane.widthProperty())
+                        prefHeightProperty().bind(centrePane.heightProperty())
+                        isWrapText = true
+                        isEditable = false
+                    })
+                } else if (selectedFile.extension in listOf("jpg", "png", "bmp")) {
+                    centrePane.children.add(ImageView(Image(selectedFile.toURI().toString())).apply {
+                        fitWidthProperty().bind(centrePane.widthProperty())
+                        fitHeightProperty().bind(centrePane.heightProperty())
+                        isPreserveRatio = true
+                    })
+                }
+            }
         }
 
         val topPane = VBox().apply {
@@ -97,10 +116,6 @@ class HelloApplication : Application() {
                     items.add(renameButton)
                     items.add(deleteButton)
                 })
-        }
-
-        val centrePane = Pane().apply {
-            setOnMouseClicked { }
         }
 
         // put the panels side-by-side in a container
