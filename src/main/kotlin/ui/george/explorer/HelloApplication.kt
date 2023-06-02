@@ -37,7 +37,7 @@ class HelloApplication : Application() {
                 list.items.add(file.name)
             }
             list.selectionModel.select(0)
-            statusBar.text = "${dir.get()}/${list.selectionModel.selectedItem}"
+            statusBar.text = "${dir.get()}/${list.selectionModel.selectedItem ?: ""}"
         }
 
         val leftPane = ListView<String>().apply {
