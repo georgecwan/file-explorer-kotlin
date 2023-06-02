@@ -13,8 +13,10 @@ import javafx.scene.input.KeyCode
 import javafx.scene.layout.*
 import javafx.scene.paint.Color
 import javafx.scene.text.Font
+import javafx.stage.DirectoryChooser
 import javafx.stage.Stage
 import java.io.File
+import java.nio.file.Files
 
 class HelloApplication : Application() {
     override fun start(stage: Stage) {
@@ -29,9 +31,18 @@ class HelloApplication : Application() {
             padding = Insets(5.0)
         }
 
+        fun refreshFileList(list: ListView<String>) {
+            list.items.clear()
+            for (file in File(dir.get()).listFiles()!!.sorted()) {
+                list.items.add(file.name)
+            }
+            list.selectionModel.select(0)
+            statusBar.text = "${dir.get()}/${list.selectionModel.selectedItem}"
+        }
+
         val leftPane = ListView<String>().apply {
             // Override cell factory to handle double clicks on cells
-            setCellFactory { lv ->
+            setCellFactory { _ ->
                 val cell = ListCell<String>()
                 cell.textProperty().bind(cell.itemProperty())
                 cell.setOnMouseClicked { e ->
@@ -44,21 +55,12 @@ class HelloApplication : Application() {
                 }
                 cell
             }
-            // Order the files and folders by type and sort by name
-            fun refreshList() {
-                items.clear()
-                for (file in File(dir.get()).listFiles()!!.sorted()) {
-                    items.add(file.name)
-                }
-                selectionModel.select(0)
-                statusBar.text = "${dir.get()}/${selectionModel.selectedItem}"
-            }
 
             fun updatePreview(displayFile: File) {
                 centrePane.children.clear()
                 if (!displayFile.canRead()) {
                     centrePane.children.add(Label("File cannot be read").apply {
-                        font = Font.font(20.0)
+                        font = Font.font(24.0)
                     })
                 }
                 else if (displayFile.extension in listOf("md", "txt")) {
@@ -76,23 +78,23 @@ class HelloApplication : Application() {
                         isPreserveRatio = true
                     })
                 }
-                else {
+                else if (!displayFile.isDirectory) {
                     centrePane.children.add(Label("Unsupported Type").apply {
-                        font = Font.font(20.0)
+                        font = Font.font(24.0)
                     })
                 }
             }
 
             prefWidth = 200.0
             selectionModel.selectionMode = SelectionMode.SINGLE
-            refreshList()
+            refreshFileList(this)
             updatePreview(File("${dir.get()}/${selectionModel.selectedItem}"))
             selectionModel.selectedItemProperty().addListener { _, _, newSelection ->
                 val selectedFile = File("${dir.get()}/${newSelection}")
                 statusBar.text = selectedFile.path
                 updatePreview(selectedFile)
             }
-            dir.addListener { _, _, _ -> refreshList() }
+            dir.addListener { _, _, _ -> refreshFileList(this) }
             setOnKeyPressed { e ->
                 if (e.code == KeyCode.ENTER) {
                     val selectedFile = File("${dir.get()}/${selectionModel.selectedItem}")
@@ -109,7 +111,101 @@ class HelloApplication : Application() {
         val topPane = VBox().apply {
             prefHeight = 30.0
             background = Background(BackgroundFill(Color.valueOf("#00ffff"), null, null))
-            setOnMouseClicked { println("top pane clicked") }
+
+            fun renameFile(targetFile: File) {
+                val newName = TextInputDialog().run {
+                    title = "Rename File"
+                    headerText = "Enter a new file name."
+                    showAndWait()
+                }
+                if (newName.isPresent
+                    && !targetFile.renameTo(File("${targetFile.parent}/${newName.get()}"))) {
+                    Alert(Alert.AlertType.ERROR).run {
+                        title = "Error Renaming File"
+                        headerText = "An error occurred. The provided file name might be invalid."
+                        showAndWait()
+                    }
+                }
+                else if (newName.isPresent) {
+                    val old_index = leftPane.selectionModel.selectedIndex
+                    refreshFileList(leftPane)
+                    leftPane.selectionModel.select(old_index)
+                }
+            }
+
+            fun moveFile(targetFile: File) {
+                val newDir = DirectoryChooser().apply {
+                    title = "Move File"
+                }.showDialog(stage)
+                if (newDir != null) {
+                    try {
+                        if (!newDir.path.startsWith(home.path)) {
+                            Alert(Alert.AlertType.ERROR).run {
+                                title = "Error Moving File"
+                                headerText = "Cannot move file outside of home directory."
+                                showAndWait()
+                            }
+                            return
+                        }
+                        Files.move(targetFile.toPath(), newDir.toPath().resolve(targetFile.name))
+                        dir.set(newDir.path)
+                    }
+                    catch (_: Exception) {
+                        Alert(Alert.AlertType.ERROR).run {
+                            title = "Error Moving File"
+                            headerText = "An error occurred. Check the destination directory."
+                            showAndWait()
+                        }
+                    }
+                }
+            }
+
+            fun deleteFile(targetFile: File) {
+                fun deleteHelper(target: File) {
+                    if (!target.isDirectory) {
+                        Files.delete(target.toPath())
+                        return
+                    }
+                    for (file in target.listFiles()!!) {
+                        if (file.isDirectory) {
+                            deleteHelper(file)
+                        }
+                        else {
+                            Files.delete(file.toPath())
+                        }
+                    }
+                    Files.delete(target.toPath())
+                }
+
+                val confirm = Alert(Alert.AlertType.CONFIRMATION).run {
+                    title = "Delete File"
+                    headerText = "Are you sure you want to delete this file?"
+                    showAndWait()
+                }
+                if (confirm.get() == ButtonType.OK) {
+                    try {
+                        deleteHelper(targetFile)
+                        val old_index = leftPane.selectionModel.selectedIndex
+                        refreshFileList(leftPane)
+                        if (leftPane.items.size > 0) {
+                            leftPane.selectionModel.select(old_index)
+                        }
+                        else if (old_index >= leftPane.items.size) {
+                            leftPane.selectionModel.select(old_index - 1)
+                        }
+                        else {
+                            leftPane.selectionModel.select(old_index)
+                        }
+                    }
+                    catch (_: Exception) {
+                        Alert(Alert.AlertType.ERROR).run {
+                            title = "Error Deleting File"
+                            headerText = "An error occurred. Check the file permissions."
+                            showAndWait()
+                        }
+                    }
+                }
+            }
 
             // Menu bar items
             val navMenu = Menu("Navigation").apply {
@@ -126,7 +222,17 @@ class HelloApplication : Application() {
                     setOnAction { dir.set("${dir.get()}/${leftPane.selectionModel.selectedItem}") }
                 })
             }
-            val actionsMenu = Menu("Actions")
+            val actionsMenu = Menu("Actions").apply {
+                items.add(MenuItem("Rename File").apply {
+                    setOnAction { renameFile(File("${dir.get()}/${leftPane.selectionModel.selectedItem}")) }
+                })
+                items.add(MenuItem("Move File").apply {
+                    setOnAction { moveFile(File("${dir.get()}/${leftPane.selectionModel.selectedItem}")) }
+                })
+                items.add(MenuItem("Delete File").apply {
+                    setOnAction { deleteFile(File("${dir.get()}/${leftPane.selectionModel.selectedItem}")) }
+                })
+            }
             val quitMenu = Menu("Quit").apply {
                 items.add(MenuItem("Quit File Explorer").apply {
                     setOnAction { Platform.exit() }
@@ -155,9 +261,21 @@ class HelloApplication : Application() {
                 // Change directory
                 setOnAction { dir.set("${dir.get()}/${leftPane.selectionModel.selectedItem}") }
             }
-            val renameButton = Button("Rename")
-            val moveButton = Button("Move")
-            val deleteButton = Button("Delete")
+            val renameButton = Button("Rename").apply {
+                setOnAction {
+                    renameFile(File("${dir.get()}/${leftPane.selectionModel.selectedItem}"))
+                }
+            }
+            val moveButton = Button("Move").apply {
+                setOnAction {
+                    moveFile(File("${dir.get()}/${leftPane.selectionModel.selectedItem}"))
+                }
+            }
+            val deleteButton = Button("Delete").apply {
+                setOnAction {
+                    deleteFile(File("${dir.get()}/${leftPane.selectionModel.selectedItem}"))
+                }
+            }
 
             children.addAll(
                 MenuBar().apply {
